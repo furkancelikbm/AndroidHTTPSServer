@@ -1,47 +1,63 @@
 package com.example.mobilserver
 
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
-import com.example.mobilserver.ui.theme.MobilServerTheme
+import androidx.compose.ui.unit.dp
 
 class MainActivity : ComponentActivity() {
+    private var server: HttpsServer? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
         setContent {
-            MobilServerTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
-            }
+            ServerScreen()
         }
+
+        // HTTPS Sunucusunu Başlat
+        server = HttpsServer(this)
+        try {
+            server?.start()
+            Toast.makeText(this, "Sunucu Başlatıldı!", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Log.e("HttpsServer", "SSL yüklenirken hata oluştu!", e)
+            throw RuntimeException("SSL bağlantısı oluşturulamadı", e)
+        }
+
+
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        server?.stop()  // Sunucuyu durdurma
     }
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
+fun ServerScreen() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Android HTTPS Server Başlatıldı!")
+        Spacer(modifier = Modifier.height(20.dp))
+        Text("Adres: https://192.168.50.65:8443")
+    }
 }
 
 @Preview(showBackground = true)
 @Composable
-fun GreetingPreview() {
-    MobilServerTheme {
-        Greeting("Android")
-    }
+fun DefaultPreview() {
+    ServerScreen()
 }
