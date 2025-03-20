@@ -13,99 +13,116 @@ import javax.net.ssl.SSLServerSocketFactory
 
 class HttpsServer(private val context: Context) : NanoHTTPD(8443) {
 
+    private var lastReceivedData: String = "Henüz veri alınmadı."
+
     init {
         try {
+            Log.d("HttpsServer", "SSL yapılandırması başlatılıyor...")
             makeSecure(createSSLServerSocketFactory(), null)
-            Log.d("HttpsServer", "HTTPS server started successfully on port 8443")
+            Log.d("HttpsServer", "HTTPS server başarıyla başlatıldı! (Port: 8443)")
         } catch (e: Exception) {
-            Log.e("HttpsServer", "Error while setting up SSL", e)
+            Log.e("HttpsServer", "SSL yapılandırma hatası!", e)
         }
     }
 
     override fun serve(session: IHTTPSession): Response {
+        Log.d("HttpsServer", "Yeni bir HTTP isteği alındı: ${session.method} ${session.uri}")
+
         return when (session.method) {
             Method.POST -> {
-                // POST isteği verilerini işle
-                val postData = handlePostData(session)
-                // Loglara yazdır
-                Log.d("HttpsServer", "Received POST data: $postData")
-                // HTML formatında yanıt oluştur
-                val responseText = "<html><body><h1>Received POST data:</h1><pre>$postData</pre></body></html>"
-                newFixedLengthResponse(Response.Status.OK, "text/html", responseText)
+                Log.d("HttpsServer", "POST isteği alındı, veriler işleniyor...")
+
+                // POST verilerini işle
+                lastReceivedData = handlePostData(session)
+
+                // Log: Veriyi ekrana bas
+                Log.d("HttpsServer", "POST isteğinden gelen veriler: $lastReceivedData")
+
+                // HTML formatında yanıt döndür (Ekrana yazdırma)
+                newFixedLengthResponse(Response.Status.OK, "text/html", "Veri alındı, GET ile kontrol edebilirsiniz.")
             }
             else -> {
-                // Diğer HTTP metodları için yanıt
-                newFixedLengthResponse(Response.Status.OK, "text/plain", "Android HTTPS Server Çalışıyor!")
+                Log.d("HttpsServer", "GET isteği alındı, son alınan veriler gösteriliyor...")
+                val responseText = """
+                    <html>
+                        <head><title>HTTPS Server</title></head>
+                        <body>
+                            <h1>Gelen Veriler:</h1>
+                            <pre>$lastReceivedData</pre>
+                        </body>
+                    </html>
+                """.trimIndent()
+                newFixedLengthResponse(Response.Status.OK, "text/html", responseText)
             }
         }
     }
 
     private fun handlePostData(session: IHTTPSession): String {
-        val postData: Map<String, String> = mutableMapOf()
-        try {
-            // POST verilerini ayrıştır
+        val postData: MutableMap<String, String> = mutableMapOf()
+        return try {
+            Log.d("HttpsServer", "POST verileri ayrıştırılıyor...")
             session.parseBody(postData)
-            // 'postData' map'ini string olarak döndür
-            return postData.toString()
+
+            // "postData" anahtarını kontrol et ve JSON string'ini al
+            val jsonString = postData["postData"] ?: "{}"
+
+            Log.d("HttpsServer", "Ayrıştırılan POST verisi: $jsonString")
+
+            // JSON verisini tekrar düzenleyip döndür
+            val jsonObject = JSONObject(jsonString)
+
+            jsonObject.toString(4)  // JSON'ı daha okunaklı döndür (4 boşluklu format)
         } catch (e: Exception) {
-            Log.e("HttpsServer", "Error while parsing POST data", e)
-            return "{\"status\": \"error\", \"message\": \"Failed to parse POST data\"}"
+            Log.e("HttpsServer", "POST verisi ayrıştırma hatası!", e)
+            "status=error\nmessage=Failed to parse POST data"
         }
     }
 
     private fun createSSLServerSocketFactory(): SSLServerSocketFactory {
         var keystoreFile: InputStream? = null
         try {
-            // Load the keystore file
+            Log.d("HttpsServer", "Keystore dosyası yükleniyor...")
             keystoreFile = context.resources.openRawResource(R.raw.server)
+
             val keyStore = KeyStore.getInstance("PKCS12")
-            keyStore.load(keystoreFile, "123456".toCharArray())  // Keystore password
+            keyStore.load(keystoreFile, "123456".toCharArray())  // Keystore şifresi
 
-            // Log available aliases in keystore
-            val aliases = keyStore.aliases()
-            while (aliases.hasMoreElements()) {
-                val foundAlias = aliases.nextElement()
-                Log.d("HttpsServer", "Keystore contains alias: $foundAlias")
-            }
+            Log.d("HttpsServer", "Keystore başarıyla yüklendi!")
 
-            val alias = "1"  // Alias for the key
+            val alias = "1"  // Anahtar için alias
             if (!keyStore.containsAlias(alias)) {
-                Log.e("HttpsServer", "Alias '$alias' not found in keystore!")
-                throw RuntimeException("Alias not found in keystore")
+                Log.e("HttpsServer", "Alias '$alias' keystore içinde bulunamadı!")
+                throw RuntimeException("Alias bulunamadı")
             }
 
-            // Extract the private key and certificate from the keystore
             val privateKey = keyStore.getKey(alias, "123456".toCharArray()) as? PrivateKey
             if (privateKey == null) {
-                Log.e("HttpsServer", "Private key is null for alias: $alias")
-                throw RuntimeException("Private key not found")
+                Log.e("HttpsServer", "Alias için özel anahtar bulunamadı!")
+                throw RuntimeException("Özel anahtar bulunamadı")
             }
 
-            val certificate = keyStore.getCertificate(alias)
-            val chain = keyStore.getCertificateChain(alias)
+            Log.d("HttpsServer", "Özel anahtar başarıyla yüklendi!")
 
-            // Initialize the KeyManagerFactory
             val keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
             keyManagerFactory.init(keyStore, "123456".toCharArray())
 
-            // Initialize SSLContext
             val sslContext = SSLContext.getInstance("TLS")
             sslContext.init(keyManagerFactory.keyManagers, null, null)
 
-            Log.d("HttpsServer", "SSL setup complete")
+            Log.d("HttpsServer", "SSL yapılandırması tamamlandı, sunucu başlatılıyor...")
 
             return sslContext.serverSocketFactory as SSLServerSocketFactory
 
         } catch (e: Exception) {
-            Log.e("HttpsServer", "SSL loading failed!", e)
-            throw RuntimeException("Failed to load SSL configuration", e)
+            Log.e("HttpsServer", "SSL yapılandırma hatası!", e)
+            throw RuntimeException("SSL yapılandırması yüklenemedi", e)
         } finally {
             try {
                 keystoreFile?.close()
+                Log.d("HttpsServer", "Keystore dosyası kapatıldı.")
             } catch (e: Exception) {
-                Log.e("HttpsServer", "Failed to close keystore file", e)
+                Log.e("HttpsServer", "Keystore dosyası kapatılamadı!", e)
             }
         }
     }
 }
-
