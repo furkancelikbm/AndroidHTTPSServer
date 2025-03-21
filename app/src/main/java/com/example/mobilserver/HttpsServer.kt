@@ -11,6 +11,7 @@ import java.security.KeyStore
 import javax.net.ssl.SSLServerSocketFactory
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.net.SocketException
 
 class HttpsServer(private val context: Context) : NanoHTTPD(8443) {
 
@@ -55,7 +56,7 @@ class HttpsServer(private val context: Context) : NanoHTTPD(8443) {
                     newFixedLengthResponse(Response.Status.OK, "text/html", responseText)
                 }
             }
-        } catch (e: java.net.SocketException) {
+        } catch (e: SocketException) {
             Log.e("HttpsServer", "Socket hatası! Bağlantı kapalı.", e)
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/html", "Sunucu hatası")
         } catch (e: Exception) {
