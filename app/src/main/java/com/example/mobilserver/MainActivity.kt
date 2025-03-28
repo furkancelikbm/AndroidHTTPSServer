@@ -17,9 +17,12 @@ import javax.net.ssl.*
 
 class MainActivity : AppCompatActivity() {
 
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            System.setProperty("javax.net.debug", "all")
+
             // Burada Compose UI'yi tanımlayabilirsiniz
         }
 
@@ -30,22 +33,33 @@ class MainActivity : AppCompatActivity() {
     private fun startHttpsServer() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
+                // Sunucu tarafında istemci sertifikasını doğrulamak için TrustManager eklemek
                 val keystore: KeyStore = KeyStore.getInstance("PKCS12")
                 val keystoreInputStream: InputStream = assets.open("server.p12")
                 keystore.load(keystoreInputStream, "123456".toCharArray())
 
+                // Sunucunun kendi sertifikalarını yükle
                 val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
                 kmf.init(keystore, "123456".toCharArray())
 
-                val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-                tmf.init(keystore)
+                // İstemci sertifikalarını doğrulamak için TrustManager'ı yükleyin
+                val trustStore = KeyStore.getInstance("PKCS12")
+                val trustStoreInputStream: InputStream = assets.open("client.p12") // İstemci sertifikasını içeren dosya
+                trustStore.load(trustStoreInputStream, "123456".toCharArray())
 
+                // TrustManagerFactory kullanarak TrustManager'ı yapılandırın
+                val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+                tmf.init(trustStore)
+
+                // SSLContext'i oluşturun
                 val sslContext = SSLContext.getInstance("TLS")
                 sslContext.init(kmf.keyManagers, tmf.trustManagers, SecureRandom())
 
                 val sslServerSocketFactory = sslContext.serverSocketFactory
+
                 val serverSocket = sslServerSocketFactory.createServerSocket(8443) as SSLServerSocket
                 serverSocket.useClientMode = false
+                serverSocket.needClientAuth=true
 
                 // Set connection timeout for SSLServerSocket
                 serverSocket.soTimeout = 20000  // 20 seconds connection timeout
@@ -56,6 +70,7 @@ class MainActivity : AppCompatActivity() {
                     try {
                         val sslSocket = serverSocket.accept() as SSLSocket
                         println("Client connected!")
+
                         sslSocket.soTimeout = 20000  // 20 seconds read timeout
 
                         sslSocket.startHandshake()  // SSL handshake
