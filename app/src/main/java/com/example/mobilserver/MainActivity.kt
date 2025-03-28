@@ -9,6 +9,8 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.OutputStreamWriter
+import java.net.SocketTimeoutException
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.net.ssl.*
@@ -26,108 +28,145 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startHttpsServer() {
-        // lifecycleScope ile coroutine başlatıyoruz
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                // Keystore dosyasını yükle
                 val keystore: KeyStore = KeyStore.getInstance("PKCS12")
-                val keystoreInputStream: InputStream = assets.open("server.p12") // Sertifika dosyasını assets klasörüne koyun
+                val keystoreInputStream: InputStream = assets.open("server.p12")
                 keystore.load(keystoreInputStream, "123456".toCharArray())
 
-                // Anahtar yöneticisini kur
                 val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
                 kmf.init(keystore, "123456".toCharArray())
 
-                // Güvenilen yöneticiyi kur
                 val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
                 tmf.init(keystore)
 
-                // SSLContext'i oluştur
                 val sslContext = SSLContext.getInstance("TLS")
                 sslContext.init(kmf.keyManagers, tmf.trustManagers, SecureRandom())
 
-                // SSLServerSocketFactory al
                 val sslServerSocketFactory = sslContext.serverSocketFactory
-
-                // Sunucu soketi oluştur (HTTPS portu)
                 val serverSocket = sslServerSocketFactory.createServerSocket(8443) as SSLServerSocket
-                serverSocket.useClientMode=false   // Sunucu modunda olacak
+                serverSocket.useClientMode = false
 
+                // Set connection timeout for SSLServerSocket
+                serverSocket.soTimeout = 20000  // 20 seconds connection timeout
                 println("HTTPS server started on https://localhost:8443")
 
-                // Sunucu bağlantılarını dinle
                 while (true) {
-                    val sslSocket = serverSocket.accept() as SSLSocket // SSL soketini kabul et
-                    handleClient(sslSocket) // Yeni bağlantıyı işleyin
+                    println("Waiting for client connection...")
+                    try {
+                        val sslSocket = serverSocket.accept() as SSLSocket
+                        println("Client connected!")
+                        sslSocket.soTimeout = 20000  // 20 seconds read timeout
+
+                        sslSocket.startHandshake()  // SSL handshake
+                        handleClient(sslSocket)
+                    } catch (e: SSLHandshakeException) {
+                        println("SSL handshake failed: ${e.message}")
+                    } catch (e: SocketTimeoutException) {
+                        println("Socket timeout: ${e.message}")
+                    } catch (e: Exception) {
+                        println("Error during client connection: ${e.message}")
+                        e.printStackTrace()
+                    }
                 }
             } catch (e: Exception) {
+                println("Error starting server: ${e.message}")
                 e.printStackTrace()
             }
         }
     }
 
+
     private fun handleClient(sslSocket: SSLSocket) {
         try {
-            sslSocket.startHandshake()
+            println("Handling client connection...")
 
-            // Bağlantı giriş ve çıkış stream'lerini al
-            val inputStream: InputStream = sslSocket.inputStream
-            val outputStream: OutputStream = sslSocket.outputStream
+            // HTTP Başlıklarını Okuyun
+            val reader = sslSocket.inputStream.bufferedReader()
+            val firstLine = reader.readLine() // HTTP metodunu (GET, POST vs.) ve URL'yi okur
+            val headers = mutableListOf<String>()
 
-            // Gelen JSON verisini oku
-            val jsonString = readInputStream(inputStream)
+            // Başka başlıkları oku
+            var line = reader.readLine()
+            while (line.isNotEmpty()) {
+                headers.add(line)
+                line = reader.readLine()
+            }
 
-            // JSON'u işleyin ve "surya" anahtarını kontrol edin
-            try {
-                val jsonObject = JSONObject(jsonString)
+            // POST isteği kontrolü
+            if (firstLine.startsWith("POST")) {
+                println("Received POST request")
 
-                // "surya" anahtarını güvenli bir şekilde al
-                val suryaValue = if (jsonObject.has("surya")) {
-                    jsonObject.getString("surya")
+                // Content-Length başlığını kontrol et
+                val contentLength = headers.find { it.startsWith("Content-Length") }?.split(":")?.get(1)?.trim()?.toIntOrNull() ?: 0
+                if (contentLength > 0) {
+                    // POST verisini oku
+                    val postData = CharArray(contentLength)
+                    reader.read(postData, 0, contentLength)
+                    val jsonString = String(postData)
+                    println("Received JSON: $jsonString")
+
+                    val jsonObject = JSONObject(jsonString)
+                    val suryaValue = jsonObject.optString("surya", "default_value")
+
+                    // Yanıtı gönder
+                    OutputStreamWriter(sslSocket.outputStream).use { writer ->
+                        serve(writer, suryaValue)
+                    }
                 } else {
-                    "default_value"  // Anahtar yoksa varsayılan değer
+                    OutputStreamWriter(sslSocket.outputStream).use { writer ->
+                        serve(writer, "No data in POST body.")
+                    }
                 }
-
-                // Yanıt ver
-                serve(outputStream, suryaValue)
-            } catch (e: org.json.JSONException) {
-                // JSON parse hatası
-                val errorResponse = "Invalid JSON format"
-                serve(outputStream, errorResponse)
+            } else {
+                OutputStreamWriter(sslSocket.outputStream).use { writer ->
+                    serve(writer, "Unsupported HTTP method: ${firstLine.split(" ")[0]}")
+                }
             }
 
-            // Bağlantıyı kapat
-            outputStream.flush()
-            sslSocket.close()
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-    }
-
-    private fun serve(outputStream: OutputStream, response: String) {
-        try {
-            // Yanıt ver
-            val responseMessage = "Response: $response"
-            outputStream.write(responseMessage.toByteArray())
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun readInputStream(inputStream: InputStream): String {
-        val stringBuilder = StringBuilder()
-        val buffer = ByteArray(1024)
-        var bytesRead: Int
-
-        try {
-            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                stringBuilder.append(String(buffer, 0, bytesRead))
+            try {
+                OutputStreamWriter(sslSocket.outputStream).use { writer ->
+                    serve(writer, "Server error: ${e.localizedMessage}")
+                }
+            } catch (innerEx: Exception) {
+                innerEx.printStackTrace()
             }
+        } finally {
+            try {
+                println("Closing connection.")
+                sslSocket.close()
+            } catch (e: Exception) {
+                println("Error closing socket: ${e.message}")
+            }
+        }
+    }
+
+
+
+    private fun serve(writer: OutputStreamWriter, response: String) {
+        try {
+            // HTML formatında basit bir "Hello World" sayfası gönder
+            val responseMessage = """
+        <html>
+            <head><title>Hello World</title></head>
+            <body>
+                <h1>Hello World</h1>
+                <p>$response</p>
+            </body>
+        </html>
+        """.trimIndent()
+
+            // Yanıtı yaz
+            writer.write(responseMessage)
+            writer.flush()  // Verinin gerçekten gönderilmesini sağlamak için flush kullanıyoruz
         } catch (e: Exception) {
             e.printStackTrace()
         }
-
-        return stringBuilder.toString()
     }
+
+
+
 }
 
