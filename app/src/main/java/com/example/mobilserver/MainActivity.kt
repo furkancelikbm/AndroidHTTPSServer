@@ -10,6 +10,7 @@ import org.json.JSONObject
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.KeyStore
+import java.security.SecureRandom
 import javax.net.ssl.*
 
 class MainActivity : AppCompatActivity() {
@@ -30,7 +31,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 // Keystore dosyasını yükle
                 val keystore: KeyStore = KeyStore.getInstance("PKCS12")
-                val keystoreInputStream: InputStream = assets.open("localhost.p12") // Sertifika dosyasını assets klasörüne koyun
+                val keystoreInputStream: InputStream = assets.open("server.p12") // Sertifika dosyasını assets klasörüne koyun
                 keystore.load(keystoreInputStream, "123456".toCharArray())
 
                 // Anahtar yöneticisini kur
@@ -43,14 +44,14 @@ class MainActivity : AppCompatActivity() {
 
                 // SSLContext'i oluştur
                 val sslContext = SSLContext.getInstance("TLS")
-                sslContext.init(kmf.keyManagers, tmf.trustManagers, null)
+                sslContext.init(kmf.keyManagers, tmf.trustManagers, SecureRandom())
 
                 // SSLServerSocketFactory al
                 val sslServerSocketFactory = sslContext.serverSocketFactory
 
                 // Sunucu soketi oluştur (HTTPS portu)
                 val serverSocket = sslServerSocketFactory.createServerSocket(8443) as SSLServerSocket
-                serverSocket.useClientMode = false // Sunucu modunda olacak
+                serverSocket.useClientMode=false   // Sunucu modunda olacak
 
                 println("HTTPS server started on https://localhost:8443")
 
@@ -88,17 +89,26 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 // Yanıt ver
-                val response = "Surya value: $suryaValue"
-                outputStream.write(response.toByteArray())
+                serve(outputStream, suryaValue)
             } catch (e: org.json.JSONException) {
                 // JSON parse hatası
                 val errorResponse = "Invalid JSON format"
-                outputStream.write(errorResponse.toByteArray())
+                serve(outputStream, errorResponse)
             }
 
             // Bağlantıyı kapat
             outputStream.flush()
             sslSocket.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun serve(outputStream: OutputStream, response: String) {
+        try {
+            // Yanıt ver
+            val responseMessage = "Response: $response"
+            outputStream.write(responseMessage.toByteArray())
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -120,3 +130,4 @@ class MainActivity : AppCompatActivity() {
         return stringBuilder.toString()
     }
 }
+
