@@ -1,64 +1,122 @@
 package com.example.mobilserver
 
-import HttpsServer
 import android.os.Bundle
-import android.util.Log
-import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope  // lifecycleScope ekleyin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import java.io.InputStream
+import java.io.OutputStream
+import java.security.KeyStore
+import javax.net.ssl.*
 
-class MainActivity : ComponentActivity() {
-    private var server: HttpsServer? = null
+class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            ServerScreen()
+            // Burada Compose UI'yi tanımlayabilirsiniz
         }
 
-        // HTTPS Sunucusunu Başlat
-        server = HttpsServer(this)
+        // HTTPS sunucusunu başlat
+        startHttpsServer()
+    }
+
+    private fun startHttpsServer() {
+        // lifecycleScope ile coroutine başlatıyoruz
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // Keystore dosyasını yükle
+                val keystore: KeyStore = KeyStore.getInstance("PKCS12")
+                val keystoreInputStream: InputStream = assets.open("localhost.p12") // Sertifika dosyasını assets klasörüne koyun
+                keystore.load(keystoreInputStream, "123456".toCharArray())
+
+                // Anahtar yöneticisini kur
+                val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+                kmf.init(keystore, "123456".toCharArray())
+
+                // Güvenilen yöneticiyi kur
+                val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+                tmf.init(keystore)
+
+                // SSLContext'i oluştur
+                val sslContext = SSLContext.getInstance("TLS")
+                sslContext.init(kmf.keyManagers, tmf.trustManagers, null)
+
+                // SSLServerSocketFactory al
+                val sslServerSocketFactory = sslContext.serverSocketFactory
+
+                // Sunucu soketi oluştur (HTTPS portu)
+                val serverSocket = sslServerSocketFactory.createServerSocket(8443) as SSLServerSocket
+                serverSocket.useClientMode = false // Sunucu modunda olacak
+
+                println("HTTPS server started on https://localhost:8443")
+
+                // Sunucu bağlantılarını dinle
+                while (true) {
+                    val sslSocket = serverSocket.accept() as SSLSocket // SSL soketini kabul et
+                    handleClient(sslSocket) // Yeni bağlantıyı işleyin
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun handleClient(sslSocket: SSLSocket) {
         try {
-            server?.start()
-            Toast.makeText(this, "Sunucu Başlatıldı!", Toast.LENGTH_LONG).show()
+            sslSocket.startHandshake()
+
+            // Bağlantı giriş ve çıkış stream'lerini al
+            val inputStream: InputStream = sslSocket.inputStream
+            val outputStream: OutputStream = sslSocket.outputStream
+
+            // Gelen JSON verisini oku
+            val jsonString = readInputStream(inputStream)
+
+            // JSON'u işleyin ve "surya" anahtarını kontrol edin
+            try {
+                val jsonObject = JSONObject(jsonString)
+
+                // "surya" anahtarını güvenli bir şekilde al
+                val suryaValue = if (jsonObject.has("surya")) {
+                    jsonObject.getString("surya")
+                } else {
+                    "default_value"  // Anahtar yoksa varsayılan değer
+                }
+
+                // Yanıt ver
+                val response = "Surya value: $suryaValue"
+                outputStream.write(response.toByteArray())
+            } catch (e: org.json.JSONException) {
+                // JSON parse hatası
+                val errorResponse = "Invalid JSON format"
+                outputStream.write(errorResponse.toByteArray())
+            }
+
+            // Bağlantıyı kapat
+            outputStream.flush()
+            sslSocket.close()
         } catch (e: Exception) {
-            Log.e("HttpsServer", "SSL yüklenirken hata oluştu!", e)
-            throw RuntimeException("SSL bağlantısı oluşturulamadı", e)
+            e.printStackTrace()
+        }
+    }
+
+    private fun readInputStream(inputStream: InputStream): String {
+        val stringBuilder = StringBuilder()
+        val buffer = ByteArray(1024)
+        var bytesRead: Int
+
+        try {
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                stringBuilder.append(String(buffer, 0, bytesRead))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
-
+        return stringBuilder.toString()
     }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        server?.stop()  // Sunucuyu durdurma
-    }
-}
-
-@Composable
-fun ServerScreen() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text("Android HTTPS Server Başlatıldı!")
-        Spacer(modifier = Modifier.height(20.dp))
-        Text("Adres: https://192.168.50.65:8443")
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun DefaultPreview() {
-    ServerScreen()
 }
