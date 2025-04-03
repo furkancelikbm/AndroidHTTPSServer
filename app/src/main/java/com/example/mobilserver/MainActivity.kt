@@ -7,6 +7,7 @@ import androidx.lifecycle.lifecycleScope  // lifecycleScope ekleyin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.io.FileInputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.OutputStreamWriter
@@ -33,36 +34,35 @@ class MainActivity : AppCompatActivity() {
     private fun startHttpsServer() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                // Sunucu tarafında istemci sertifikasını doğrulamak için TrustManager eklemek
-                val keystore: KeyStore = KeyStore.getInstance("PKCS12")
-                val keystoreInputStream: InputStream = assets.open("server.p12")
-                keystore.load(keystoreInputStream, "123456".toCharArray())
+                // Server keystore'u PKCS12 formatında assets klasöründen yükle
+                val keyStore = KeyStore.getInstance("PKCS12").apply {
+                    load(applicationContext.assets.open("server-keystore.p12"), "123456".toCharArray())
+                }
 
-                // Sunucunun kendi sertifikalarını yükle
-                val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-                kmf.init(keystore, "123456".toCharArray())
+                val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
+                    init(keyStore, "123456".toCharArray())
+                }
 
-                // İstemci sertifikalarını doğrulamak için TrustManager'ı yükleyin
-                val trustStore = KeyStore.getInstance("PKCS12")
-                val trustStoreInputStream: InputStream = assets.open("client.p12") // İstemci sertifikasını içeren dosya
-                trustStore.load(trustStoreInputStream, "123456".toCharArray())
+                // Client truststore'u PKCS12 formatında assets klasöründen yükle
+                val trustStore = KeyStore.getInstance("PKCS12").apply {
+                    load(applicationContext.assets.open("client-truststore.p12"), "123456".toCharArray())
+                }
 
-                // TrustManagerFactory kullanarak TrustManager'ı yapılandırın
-                val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-                tmf.init(trustStore)
+                val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
+                    init(trustStore)
+                }
 
-                // SSLContext'i oluşturun
-                val sslContext = SSLContext.getInstance("TLS")
-                sslContext.init(kmf.keyManagers, tmf.trustManagers, SecureRandom())
+                // SSLContext oluştur
+                val sslContext = SSLContext.getInstance("TLS").apply {
+                    init(kmf.keyManagers, tmf.trustManagers, SecureRandom())
+                }
 
-                val sslServerSocketFactory = sslContext.serverSocketFactory
+                val serverSocket = (sslContext.serverSocketFactory.createServerSocket(8443) as SSLServerSocket).apply {
+                    useClientMode = false
+                    needClientAuth = true
+                    soTimeout = 20000
+                }
 
-                val serverSocket = sslServerSocketFactory.createServerSocket(8443) as SSLServerSocket
-                serverSocket.useClientMode = false
-                serverSocket.needClientAuth=true
-
-                // Set connection timeout for SSLServerSocket
-                serverSocket.soTimeout = 20000  // 20 seconds connection timeout
                 println("HTTPS server started on https://localhost:8443")
 
                 while (true) {
@@ -71,9 +71,8 @@ class MainActivity : AppCompatActivity() {
                         val sslSocket = serverSocket.accept() as SSLSocket
                         println("Client connected!")
 
-                        sslSocket.soTimeout = 20000  // 20 seconds read timeout
-
-                        sslSocket.startHandshake()  // SSL handshake
+                        sslSocket.soTimeout = 20000
+                        sslSocket.startHandshake()
                         handleClient(sslSocket)
                     } catch (e: SSLHandshakeException) {
                         println("SSL handshake failed: ${e.message}")
@@ -81,7 +80,6 @@ class MainActivity : AppCompatActivity() {
                         println("Socket timeout: ${e.message}")
                     } catch (e: Exception) {
                         println("Error during client connection: ${e.message}")
-                        e.printStackTrace()
                     }
                 }
             } catch (e: Exception) {
@@ -90,7 +88,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
 
     private fun handleClient(sslSocket: SSLSocket) {
         try {
@@ -162,24 +159,33 @@ class MainActivity : AppCompatActivity() {
 
     private fun serve(writer: OutputStreamWriter, response: String) {
         try {
-            // HTML formatında basit bir "Hello World" sayfası gönder
+            // HTTP 200 OK yanıt başlığını ekleyin
             val responseMessage = """
-        <html>
-            <head><title>Hello World</title></head>
-            <body>
-                <h1>Hello World</h1>
-                <p>$response</p>
-            </body>
-        </html>
+            HTTP/1.1 200 OK
+            Content-Type: text/html
+            Connection: close
+
+            <html>
+                <head>
+                    <title>Mobil Server Response</title>
+                </head>
+                <body>
+                    <h1>Mobil Server Yanıtı</h1>
+                    <p>$response</p>
+                    <hr/>
+                    <p>Time: ${System.currentTimeMillis()}</p>
+                </body>
+            </html>
         """.trimIndent()
 
             // Yanıtı yaz
             writer.write(responseMessage)
-            writer.flush()  // Verinin gerçekten gönderilmesini sağlamak için flush kullanıyoruz
+            writer.flush()  // Veriyi gerçekten göndermek için flush kullanıyoruz
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
+
 
 
 
