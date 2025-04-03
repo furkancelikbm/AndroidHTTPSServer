@@ -1,15 +1,14 @@
 package com.example.mobilserver
 
+import ProductDatabaseHelper
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope  // lifecycleScope ekleyin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
-import java.io.FileInputStream
-import java.io.InputStream
-import java.io.OutputStream
 import java.io.OutputStreamWriter
 import java.net.SocketTimeoutException
 import java.security.KeyStore
@@ -60,7 +59,7 @@ class MainActivity : AppCompatActivity() {
                 val serverSocket = (sslContext.serverSocketFactory.createServerSocket(8443) as SSLServerSocket).apply {
                     useClientMode = false
                     needClientAuth = true
-                    soTimeout = 20000
+                    soTimeout = 5000
                 }
 
                 println("HTTPS server started on https://localhost:8443")
@@ -71,7 +70,7 @@ class MainActivity : AppCompatActivity() {
                         val sslSocket = serverSocket.accept() as SSLSocket
                         println("Client connected!")
 
-                        sslSocket.soTimeout = 20000
+                        sslSocket.soTimeout = 2000
                         sslSocket.startHandshake()
                         handleClient(sslSocket)
                     } catch (e: SSLHandshakeException) {
@@ -105,37 +104,50 @@ class MainActivity : AppCompatActivity() {
                 line = reader.readLine()
             }
 
-            // POST isteği kontrolü
             if (firstLine.startsWith("POST")) {
                 println("Received POST request")
 
-                // Content-Length başlığını kontrol et
                 val contentLength = headers.find { it.startsWith("Content-Length") }?.split(":")?.get(1)?.trim()?.toIntOrNull() ?: 0
                 if (contentLength > 0) {
-                    // POST verisini oku
+                    // POST data
                     val postData = CharArray(contentLength)
                     reader.read(postData, 0, contentLength)
                     val jsonString = String(postData)
                     println("Received JSON: $jsonString")
 
-                    val jsonObject = JSONObject(jsonString)
-                    val suryaValue = jsonObject.optString("surya", "default_value")
+                    // Parse as JSONArray
+                    val jsonArray = JSONArray(jsonString)
 
-                    // Yanıtı gönder
+                    // Veritabanı bağlantısı oluştur
+                    val dbHelper = ProductDatabaseHelper(this)
+
+                    // Liste ID'sini al (örneğin, her JSON isteğinde gelen listId olabilir)
+                    val listId = System.currentTimeMillis().toInt() // Benzersiz bir listId (zamana dayalı örnek)
+
+                    // Iterate over the array and handle the data
+                    for (i in 0 until jsonArray.length()) {
+                        val item = jsonArray.getJSONObject(i)
+                        val price = item.getDouble("price")
+                        val name = item.getString("name")
+                        val count = item.getInt("count")
+                        val kdv = item.getDouble("kdv")
+
+                        println("Item: $name, Price: $price, Count: $count, KDV: $kdv")
+
+                        // Veritabanına kaydet (her ürün için benzersiz ID)
+                        dbHelper.insertProduct(listId, name, price, count, kdv)
+                    }
+
+                    // Send response
                     OutputStreamWriter(sslSocket.outputStream).use { writer ->
-                        serve(writer, suryaValue)
+                        serve(writer, "Data processed and saved to database successfully.")
                     }
                 } else {
                     OutputStreamWriter(sslSocket.outputStream).use { writer ->
                         serve(writer, "No data in POST body.")
                     }
                 }
-            } else {
-                OutputStreamWriter(sslSocket.outputStream).use { writer ->
-                    serve(writer, "Unsupported HTTP method: ${firstLine.split(" ")[0]}")
-                }
             }
-
         } catch (e: Exception) {
             e.printStackTrace()
             try {
