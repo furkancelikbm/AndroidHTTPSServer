@@ -1,14 +1,11 @@
 package com.example.mobilserver
 
-import ProductDatabaseHelper
 import android.os.Bundle
-import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope  // lifecycleScope ekleyin
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
+import java.io.BufferedReader
 import java.io.OutputStreamWriter
 import java.net.SocketTimeoutException
 import java.security.KeyStore
@@ -16,190 +13,102 @@ import java.security.SecureRandom
 import javax.net.ssl.*
 
 class MainActivity : AppCompatActivity() {
-
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            System.setProperty("javax.net.debug", "all")
-
-            // Burada Compose UI'yi tanımlayabilirsiniz
-        }
-
-        // HTTPS sunucusunu başlat
+        System.setProperty("javax.net.debug", "all")
         startHttpsServer()
     }
 
     private fun startHttpsServer() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                // Server keystore'u PKCS12 formatında assets klasöründen yükle
-                val keyStore = KeyStore.getInstance("PKCS12").apply {
-                    load(applicationContext.assets.open("server-keystore.p12"), "123456".toCharArray())
-                }
-
-                val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
-                    init(keyStore, "123456".toCharArray())
-                }
-
-                // Client truststore'u PKCS12 formatında assets klasöründen yükle
-                val trustStore = KeyStore.getInstance("PKCS12").apply {
-                    load(applicationContext.assets.open("client-truststore.p12"), "123456".toCharArray())
-                }
-
-                val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
-                    init(trustStore)
-                }
-
-                // SSLContext oluştur
-                val sslContext = SSLContext.getInstance("TLS").apply {
-                    init(kmf.keyManagers, tmf.trustManagers, SecureRandom())
-                }
-
+                val sslContext = setupSSLContext()
                 val serverSocket = (sslContext.serverSocketFactory.createServerSocket(8443) as SSLServerSocket).apply {
                     useClientMode = false
                     needClientAuth = true
                     soTimeout = 5000
                 }
-
                 println("HTTPS server started on https://localhost:8443")
 
                 while (true) {
-                    println("Waiting for client connection...")
                     try {
-                        val sslSocket = serverSocket.accept() as SSLSocket
-                        println("Client connected!")
-
-                        sslSocket.soTimeout = 2000
-                        sslSocket.startHandshake()
-                        handleClient(sslSocket)
+                        serverSocket.accept().use { sslSocket ->
+                            (sslSocket as SSLSocket).apply {
+                                soTimeout = 2000
+                                startHandshake()
+                                handleClient(this)
+                            }
+                        }
                     } catch (e: SSLHandshakeException) {
-                        println("SSL handshake failed: ${e.message}")
+                        println("SSL Handshake failed: ${e.localizedMessage}")
                     } catch (e: SocketTimeoutException) {
-                        println("Socket timeout: ${e.message}")
+                        println("Client connection timed out: ${e.localizedMessage}")
                     } catch (e: Exception) {
-                        println("Error during client connection: ${e.message}")
+                        println("Client connection error: ${e.localizedMessage}")
                     }
                 }
             } catch (e: Exception) {
-                println("Error starting server: ${e.message}")
-                e.printStackTrace()
+                println("Error starting server: ${e.localizedMessage}")
             }
         }
+    }
+
+    private fun setupSSLContext(): SSLContext {
+        val keyStore = loadKeyStore("server-keystore.p12")
+        val trustStore = loadKeyStore("client-truststore.p12")
+
+        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
+            init(keyStore, getKeystorePassword())
+        }
+        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply {
+            init(trustStore)
+        }
+        return SSLContext.getInstance("TLS").apply {
+            init(kmf.keyManagers, tmf.trustManagers, SecureRandom())
+            defaultSSLParameters.protocols = arrayOf("TLSv1.2", "TLSv1.3")  // ✅ Güçlü protokoller
+        }
+    }
+
+    private fun loadKeyStore(fileName: String): KeyStore {
+        return KeyStore.getInstance("PKCS12").apply {
+            load(applicationContext.assets.open(fileName), getKeystorePassword())
+        }
+    }
+
+    private fun getKeystorePassword(): CharArray {
+        // 🚨 Sabit şifre yerine güvenli bir kaynaktan oku (örn: EncryptedSharedPreferences, Android Keystore)
+        return "123456".toCharArray()
     }
 
     private fun handleClient(sslSocket: SSLSocket) {
-        try {
-            println("Handling client connection...")
-
-            // HTTP Başlıklarını Okuyun
-            val reader = sslSocket.inputStream.bufferedReader()
-            val firstLine = reader.readLine() // HTTP metodunu (GET, POST vs.) ve URL'yi okur
-            val headers = mutableListOf<String>()
-
-            // Başka başlıkları oku
-            var line = reader.readLine()
-            while (line.isNotEmpty()) {
-                headers.add(line)
-                line = reader.readLine()
-            }
-
-            if (firstLine.startsWith("POST")) {
-                println("Received POST request")
-
-                val contentLength = headers.find { it.startsWith("Content-Length") }?.split(":")?.get(1)?.trim()?.toIntOrNull() ?: 0
-                if (contentLength > 0) {
-                    // POST data
-                    val postData = CharArray(contentLength)
-                    reader.read(postData, 0, contentLength)
-                    val jsonString = String(postData)
-                    println("Received JSON: $jsonString")
-
-                    // Parse as JSONArray
-                    val jsonArray = JSONArray(jsonString)
-
-                    // Veritabanı bağlantısı oluştur
-                    val dbHelper = ProductDatabaseHelper(this)
-
-                    // Liste ID'sini al (örneğin, her JSON isteğinde gelen listId olabilir)
-                    val listId = System.currentTimeMillis().toInt() // Benzersiz bir listId (zamana dayalı örnek)
-
-                    // Iterate over the array and handle the data
-                    for (i in 0 until jsonArray.length()) {
-                        val item = jsonArray.getJSONObject(i)
-                        val price = item.getDouble("price")
-                        val name = item.getString("name")
-                        val count = item.getInt("count")
-                        val kdv = item.getDouble("kdv")
-
-                        println("Item: $name, Price: $price, Count: $count, KDV: $kdv")
-
-                        // Veritabanına kaydet (her ürün için benzersiz ID)
-                        dbHelper.insertProduct(listId, name, price, count, kdv)
-                    }
-
-                    // Send response
-                    OutputStreamWriter(sslSocket.outputStream).use { writer ->
-                        serve(writer, "Data processed and saved to database successfully.")
-                    }
-                } else {
-                    OutputStreamWriter(sslSocket.outputStream).use { writer ->
-                        serve(writer, "No data in POST body.")
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        sslSocket.use {
             try {
-                OutputStreamWriter(sslSocket.outputStream).use { writer ->
-                    serve(writer, "Server error: ${e.localizedMessage}")
-                }
-            } catch (innerEx: Exception) {
-                innerEx.printStackTrace()
-            }
-        } finally {
-            try {
-                println("Closing connection.")
-                sslSocket.close()
+                val reader = it.inputStream.bufferedReader()
+                val requestLine = reader.readLine() ?: return
+                val headers = generateSequence { reader.readLine().takeIf { line -> line.isNotEmpty() } }.toList()
+                if (requestLine.startsWith("POST")) handlePostRequest(reader, headers, it)
+                else serve(it, "Unsupported request method.")
             } catch (e: Exception) {
-                println("Error closing socket: ${e.message}")
+                println("Error handling client: ${e.localizedMessage}")
+                serve(sslSocket, "Server error: ${e.localizedMessage}")
             }
         }
     }
 
-
-
-    private fun serve(writer: OutputStreamWriter, response: String) {
-        try {
-            // HTTP 200 OK yanıt başlığını ekleyin
-            val responseMessage = """
-            HTTP/1.1 200 OK
-            Content-Type: text/html
-            Connection: close
-
-            <html>
-                <head>
-                    <title>Mobil Server Response</title>
-                </head>
-                <body>
-                    <h1>Mobil Server Yanıtı</h1>
-                    <p>$response</p>
-                    <hr/>
-                    <p>Time: ${System.currentTimeMillis()}</p>
-                </body>
-            </html>
-        """.trimIndent()
-
-            // Yanıtı yaz
-            writer.write(responseMessage)
-            writer.flush()  // Veriyi gerçekten göndermek için flush kullanıyoruz
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    private fun handlePostRequest(reader: BufferedReader, headers: List<String>, sslSocket: SSLSocket) {
+        val contentLength = headers.find { it.startsWith("Content-Length") }?.substringAfter(":")?.trim()?.toIntOrNull() ?: 0
+        val postData = if (contentLength > 0) CharArray(contentLength).apply { reader.read(this, 0, contentLength) } else null
+        println("Received POST request: ${postData?.concatToString() ?: "No data"}")
+        serve(sslSocket, postData?.concatToString() ?: "No data in POST body.")
     }
 
-
-
-
+    private fun serve(socket: SSLSocket, response: String) {
+        OutputStreamWriter(socket.outputStream).use { writer ->
+            writer.write(
+                """HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n""" + // ✅ HTTP standardına uygun
+                        """<html><head><title>Mobil Server Response</title></head><body><h1>Response</h1><p>$response</p></body></html>"""
+            )
+            writer.flush()
+        }
+    }
 }
-
