@@ -13,7 +13,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.mobilserver"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
@@ -67,6 +67,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.3.9")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+
 
 
 }

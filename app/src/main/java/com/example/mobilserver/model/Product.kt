@@ -1,4 +1,4 @@
-package com.example.mobilserver
+package com.example.mobilserver.model
 
 import kotlinx.serialization.Serializable
 
