@@ -1,5 +1,6 @@
 package com.example.mobilserver
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,6 +24,7 @@ import java.security.SecureRandom
 import javax.net.ssl.*
 
 class MainActivity : ComponentActivity() {
+
     private var serverJob: Job? = null
     private val _responseText = mutableStateOf("Henüz veri alınmadı.") // UI için değişken
 
@@ -30,7 +32,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            ServerScreen(_responseText.value) // Güncellenen veriyi ekranda göster
+            val context = applicationContext
+            ServerScreen(_responseText.value, context) // Güncellenen veriyi ekranda göster
         }
 
         startHttpsServer()
@@ -148,29 +151,85 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable
+fun ReceiptList(products: List<Product>, receiptNumber: Int) {
+    LazyColumn(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Ürün", fontSize = 16.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+                Text("Fiyat", fontSize = 16.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                Text("KDV", fontSize = 16.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                Text("Adet", fontSize = 16.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+            }
+        }
+        items(products) { product ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Ürün Adı
+                    Text(product.name, fontSize = 18.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+
+                    // Ürün Fiyatı
+                    Text("₺${product.price}", fontSize = 18.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+
+                    // KDV
+                    Text("%${product.kdv.toInt()}", fontSize = 18.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+
+                    // Adet
+                    Text("x${product.count}", fontSize = 18.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                }
+            }
+        }
+
+        // Fiș numarası kısmı
+        item {
+            Text(
+                text = "Fiş Numarası: #${receiptNumber}",
+                fontSize = 18.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ServerScreen(responseText: String) {
+fun ServerScreen(responseText: String, context: Context) {
     var response by remember { mutableStateOf(responseText) }
+    var receiptNumber by remember { mutableStateOf(loadReceiptNumber(context)) }  // Fiş numarasını yükle
 
     LaunchedEffect(responseText) {
-        try {
-            // Log response text
-            println("Gelen Response Text: $responseText")
-            response = responseText
-        } catch (e: Exception) {
-            println("Response Text güncellenirken hata: ${e.localizedMessage}")
-        }
+        response = responseText
     }
 
     val productList = try {
-        println("Veri parse ediliyor: $response")
-        Json.decodeFromString<List<Product>>(response).also {
-            println("Veri başarıyla parse edildi: $it")
-        }
+        Json.decodeFromString<List<Product>>(response)
     } catch (e: Exception) {
-        println("JSON parse hatası: ${e.localizedMessage}")
         emptyList() // Eğer JSON verisi hatalıysa boş liste döndür
+    }
+
+    // Fiş numarasını güncelle
+    LaunchedEffect(productList) {
+        if (productList.isNotEmpty()) {
+            receiptNumber++ // Yeni bir veri geldiğinde fiş numarasını artır
+            saveReceiptNumber(context, receiptNumber)  // Yeni fiş numarasını kaydet
+        }
     }
 
     Scaffold(
@@ -190,48 +249,22 @@ fun ServerScreen(responseText: String) {
             Spacer(modifier = Modifier.height(16.dp))
 
             if (productList.isEmpty()) {
-                println("Henüz veri yok.")
                 Text(text = "Henüz veri yok.", fontSize = 18.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
             } else {
-                println("Ürün listesi mevcut: ${productList.size} ürün")
-                ReceiptList(productList) // Gelen ürün listesine göre UI'yi render et
+                ReceiptList(products = productList, receiptNumber = receiptNumber) // Gelen ürün listesine göre UI'yi render et
             }
         }
     }
 }
 
-@Composable
-fun ReceiptList(products: List<Product>) {
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("Ürün", fontSize = 16.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
-                Text("KDV", fontSize = 16.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                Text("Adet", fontSize = 16.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
-            }
-        }
-        items(products) { product ->
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(product.name, fontSize = 18.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
-                    Text("%${product.kdv.toInt()}", fontSize = 18.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                    Text("x${product.count}", fontSize = 18.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
-                }
-            }
-        }
-    }
+// SharedPreferences'tan fiş numarasını yükleme
+fun loadReceiptNumber(context: Context): Int {
+    val sharedPreferences = context.getSharedPreferences("app_preferences", Context.MODE_PRIVATE)
+    return sharedPreferences.getInt("receipt_number", 0)  // Default olarak 1 veriyoruz
+}
+
+// SharedPreferences'a fiş numarasını kaydetme
+fun saveReceiptNumber(context: Context, receiptNumber: Int) {
+    val sharedPreferences = context.getSharedPreferences("app_preferences", Context.MODE_PRIVATE)
+    sharedPreferences.edit().putInt("receipt_number", receiptNumber).apply()
 }
