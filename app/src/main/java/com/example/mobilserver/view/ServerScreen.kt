@@ -1,11 +1,10 @@
 package com.example.mobilserver.view
 
 import androidx.compose.animation.core.EaseInOutQuad
-import androidx.compose.animation.core.Easing
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,17 +14,15 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mobilserver.R
 import com.example.mobilserver.model.Product
 import com.example.mobilserver.viewmodel.ServerViewModel
 import kotlinx.coroutines.delay
-import androidx.compose.animation.core.LinearOutSlowInEasing
+import java.text.DecimalFormat
 
 val fakeReceiptFont = FontFamily(Font(R.font.fakereceipt)) // Fontu tanımladık
-
 
 @Composable
 fun ServerScreen(viewModel: ServerViewModel) {
@@ -39,7 +36,6 @@ fun ServerScreen(viewModel: ServerViewModel) {
             animateUp = false
             delay(100)
             animateUp = true
-            println("tetiklendi")
         }
     }
 
@@ -51,27 +47,29 @@ fun ServerScreen(viewModel: ServerViewModel) {
         )
     )
 
-
     Scaffold(topBar = {}) { padding ->
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxSize()  // Ekranı tamamen kaplamak için
                 .padding(padding),
             contentAlignment = Alignment.TopCenter
         ) {
-            // Sadece veri varsa göster
             if (productList.isNotEmpty()) {
-                Surface(
+                // Kart görünümü ile fiş tasarımı
+                Card(
                     modifier = Modifier
-                        .offset(y = offsetY)
-                        .fillMaxWidth(0.9f)
-                        .wrapContentHeight()
-                        .shadow(8.dp, shape = MaterialTheme.shapes.medium),
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.98f)
+                        .fillMaxSize()  // Ekranı tamamen kaplamak
+                        .offset(y = offsetY)  // Fişi yukarı kaydırma animasyonu
+                        .padding(16.dp)  // Kenarlardan boşluk bırakmak için
+                        .shadow(8.dp, shape = MaterialTheme.shapes.medium), // Hafif gölge efekti
+                    shape = MaterialTheme.shapes.medium, // Kenarları yuvarlatmak için
+                    colors = CardDefaults.cardColors( // Arka plan rengini burada belirliyoruz
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)  // Arka plan rengi
+                    )
                 ) {
                     Column(
                         modifier = Modifier
+                            .fillMaxSize()
                             .padding(horizontal = 32.dp, vertical = 55.dp)
                     ) {
                         BusinessHeader(receiptNumber = receiptNumber)
@@ -82,6 +80,9 @@ fun ServerScreen(viewModel: ServerViewModel) {
 
                         Spacer(modifier = Modifier.height(24.dp))
 
+                        // Toplam Fiyat ve KDV Hesaplama
+                        TotalAndVatSection(products = productList)
+
                         BusinessFooter()
                     }
                 }
@@ -90,6 +91,69 @@ fun ServerScreen(viewModel: ServerViewModel) {
     }
 }
 
+
+@Composable
+fun TotalAndVatSection(products: List<Product>) {
+    val totalAmount = calculateTotalAmount(products)
+    val totalVat = calculateTotalVat(products)
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Toplam KDV
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "Toplam KDV: ",
+                fontSize = 16.sp,
+                style = TextStyle(fontFamily = fakeReceiptFont),
+                modifier = Modifier.align(Alignment.CenterVertically)
+            )
+            Text(
+                "₺${totalVat}",
+                fontSize = 16.sp,
+                style = TextStyle(fontFamily = fakeReceiptFont),
+                modifier = Modifier.align(Alignment.CenterVertically)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Toplam Fiyat
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                "Toplam Tutar: ",
+                fontSize = 16.sp,
+                style = TextStyle(fontFamily = fakeReceiptFont),
+                modifier = Modifier.align(Alignment.CenterVertically)
+            )
+            Text(
+                "₺${totalAmount}",
+                fontSize = 16.sp,
+                style = TextStyle(fontFamily = fakeReceiptFont),
+                modifier = Modifier.align(Alignment.CenterVertically)
+            )
+        }
+    }
+}
+
+
+// Toplam fiyatı hesaplayan fonksiyon
+fun calculateTotalAmount(products: List<Product>): String {
+    val totalAmount = products.sumOf { it.price * it.count }
+    return DecimalFormat("#,##0.00").format(totalAmount)
+}
+
+// Toplam KDV'yi hesaplayan fonksiyon
+fun calculateTotalVat(products: List<Product>): String {
+    val totalVat = products.sumOf { it.price * it.count * (it.kdv / 100) }
+    return DecimalFormat("#,##0.00").format(totalVat)
+}
 
 @Composable
 fun BusinessHeader(receiptNumber: Int) {
@@ -212,23 +276,5 @@ fun BusinessFooter() {
             modifier = Modifier.align(Alignment.CenterHorizontally),
             style = TextStyle(fontFamily = fakeReceiptFont)  // Fontu burada uyguladık
         )
-    }
-}
-
-@Preview(showSystemUi = true)
-@Composable
-fun PreviewServerScreen() {
-    val mockProducts = listOf(
-        Product(name = "Elma", price = 5.0, kdv = 8.0, count = 3),
-        Product(name = "Süt", price = 15.0, kdv = 1.0, count = 2),
-        Product(name = "Çikolata", price = 10.0, kdv = 18.0, count = 1)
-    )
-
-    val dummyReceipt = 42
-
-    Column(modifier = Modifier.padding(16.dp)) {
-        BusinessHeader(receiptNumber = dummyReceipt)
-        ReceiptList(products = mockProducts)
-        BusinessFooter()
     }
 }

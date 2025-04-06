@@ -21,4 +21,5 @@ class ServerViewModel(application: Application) : AndroidViewModel(application) 
         super.onCleared()
         repository.stopServer()
     }
+
 }
