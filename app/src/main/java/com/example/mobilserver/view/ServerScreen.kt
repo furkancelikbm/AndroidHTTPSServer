@@ -1,10 +1,16 @@
 package com.example.mobilserver.view
 
+import androidx.compose.animation.core.EaseInOutQuad
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -15,6 +21,8 @@ import androidx.compose.ui.unit.sp
 import com.example.mobilserver.R
 import com.example.mobilserver.model.Product
 import com.example.mobilserver.viewmodel.ServerViewModel
+import kotlinx.coroutines.delay
+import androidx.compose.animation.core.LinearOutSlowInEasing
 
 val fakeReceiptFont = FontFamily(Font(R.font.fakereceipt)) // Fontu tanımladık
 
@@ -24,37 +32,64 @@ fun ServerScreen(viewModel: ServerViewModel) {
     val productList by viewModel.productList.collectAsState()
     val receiptNumber by viewModel.receiptNumber.collectAsState()
 
-    Scaffold(
-        topBar = {
-            // TopAppBar'dan başlık kısmı kaldırıldı
+    var animateUp by remember { mutableStateOf(false) }
+
+    LaunchedEffect(productList.map { it.hashCode() }) {
+        if (productList.isNotEmpty()) {
+            animateUp = false
+            delay(100)
+            animateUp = true
+            println("tetiklendi")
         }
-    ) { padding ->
-        Column(
+    }
+
+    val offsetY by animateDpAsState(
+        targetValue = if (animateUp) 0.dp else 800.dp, // Fişin başlangıç noktası (aşağıda)
+        animationSpec = tween(
+            durationMillis = 3000, // Daha yavaş bir geçiş
+            easing = EaseInOutQuad // Daha akıcı bir geçiş için easing fonksiyonu
+        )
+    )
+
+
+    Scaffold(topBar = {}) { padding ->
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 32.dp, vertical = 55.dp)  // Yan ve üst boşlukları artırdık
+                .padding(padding),
+            contentAlignment = Alignment.TopCenter
         ) {
-            BusinessHeader(receiptNumber = receiptNumber)
+            // Sadece veri varsa göster
+            if (productList.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier
+                        .offset(y = offsetY)
+                        .fillMaxWidth(0.9f)
+                        .wrapContentHeight()
+                        .shadow(8.dp, shape = MaterialTheme.shapes.medium),
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.98f)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(horizontal = 32.dp, vertical = 55.dp)
+                    ) {
+                        BusinessHeader(receiptNumber = receiptNumber)
 
-            Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-            if (productList.isEmpty()) {
-                Text(
-                    "Henüz veri yok.",
-                    fontSize = 18.sp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    style = TextStyle(fontFamily = fakeReceiptFont)  // Fontu burada uyguladık
-                )
-            } else {
-                ReceiptList(products = productList)
+                        ReceiptList(products = productList)
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        BusinessFooter()
+                    }
+                }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            BusinessFooter()
         }
     }
 }
+
 
 @Composable
 fun BusinessHeader(receiptNumber: Int) {
