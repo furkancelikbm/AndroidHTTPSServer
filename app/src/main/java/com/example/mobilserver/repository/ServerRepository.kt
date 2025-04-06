@@ -1,6 +1,7 @@
 package com.example.mobilserver.repository
 
 import android.content.Context
+import com.example.mobilserver.DatabaseHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.example.mobilserver.model.Product
@@ -10,6 +11,8 @@ import java.security.KeyStore
 import java.security.SecureRandom
 import javax.net.ssl.*
 import kotlinx.coroutines.*
+import java.text.SimpleDateFormat
+import java.util.Date
 
 class ServerRepository(private val context: Context) {
 
@@ -81,33 +84,59 @@ class ServerRepository(private val context: Context) {
         val requestLine = reader.readLine() ?: return
         val headers = generateSequence { reader.readLine()?.takeIf { it.isNotEmpty() } }.toList()
 
+        // Gelen istek POST olmalı
         if (requestLine.startsWith("POST")) {
             val contentLength = headers.find { it.startsWith("Content-Length") }
                 ?.substringAfter(":")?.trim()?.toIntOrNull() ?: 0
+
+            // Veriyi oku
             val data = CharArray(contentLength)
             reader.read(data)
             val received = data.concatToString()
-            println("received ${received}")
+            println("Received data: $received")
 
+            // JSON verisini parse et ve listeyi güncelle
             try {
                 val products = Json.decodeFromString<List<Product>>(received)
                 _productList.value = products
+
+                // Receipt numarasını artır ve kaydet
                 _receiptNumber.value += 1
                 saveReceiptNumber(_receiptNumber.value)
-                println("JSON productlist: ${_productList.value}")
+
+                // Veritabanına kaydet
+                val dbHelper = DatabaseHelper(context)
+                val listId = _receiptNumber.value  // list_id olarak receiptNumber kullanılabilir
+
+                // Ürünleri ve tarih bilgisini veritabanına kaydet
+                dbHelper.insertProducts(products, listId)
+
+                println("Parsed product list: ${_productList.value}")
             } catch (e: Exception) {
-                println("JSON parse error: ${e.localizedMessage}")
+                println("Error parsing JSON: ${e.localizedMessage}")
             }
 
-            OutputStreamWriter(socket.outputStream).use {
-                it.write(
-                    """HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n""" +
-                            """<html><body><h1>Veri alındı</h1><p>${received}</p></body></html>"""
-                )
-                it.flush()
+            // HTTP yanıtı gönder
+            OutputStreamWriter(socket.outputStream).use { writer ->
+                val response = """
+                HTTP/1.1 200 OK
+                Content-Type: text/html
+                Connection: close
+
+                <html>
+                    <body>
+                        <h1>Veri alındı</h1>
+                        <p>$received</p>
+                    </body>
+                </html>
+            """.trimIndent()
+                writer.write(response)
+                writer.flush()
             }
         }
     }
+
+
 
     private fun loadReceiptNumber(): Int {
         val prefs = context.getSharedPreferences("app_preferences", Context.MODE_PRIVATE)
