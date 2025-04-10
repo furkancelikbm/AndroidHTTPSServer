@@ -1,7 +1,7 @@
 package com.example.mobilserver.repository
 
 import android.content.Context
-import com.example.mobilserver.DatabaseHelper
+import com.example.mobilserver.model.DatabaseHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.example.mobilserver.model.Product
@@ -11,8 +11,7 @@ import java.security.KeyStore
 import java.security.SecureRandom
 import javax.net.ssl.*
 import kotlinx.coroutines.*
-import java.text.SimpleDateFormat
-import java.util.Date
+
 
 class ServerRepository(private val context: Context) {
 

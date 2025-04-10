@@ -31,21 +31,24 @@ fun ServerScreen(viewModel: ServerViewModel) {
 
     var animateUp by remember { mutableStateOf(false) }
 
-    LaunchedEffect(productList.map { it.hashCode() }) {
+    LaunchedEffect(productList) {
         if (productList.isNotEmpty()) {
             animateUp = false
-            delay(100)
+            delay(1000)
             animateUp = true
+            println("baslatildi")
         }
     }
 
     val offsetY by animateDpAsState(
         targetValue = if (animateUp) 0.dp else 800.dp, // Fişin başlangıç noktası (aşağıda)
         animationSpec = tween(
-            durationMillis = 3000, // Daha yavaş bir geçiş
+            durationMillis = 1000, // Daha yavaş bir geçiş
             easing = EaseInOutQuad // Daha akıcı bir geçiş için easing fonksiyonu
         )
     )
+
+
 
     Scaffold(topBar = {}) { padding ->
         Box(
