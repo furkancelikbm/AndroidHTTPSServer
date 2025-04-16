@@ -24,6 +24,7 @@ class ServerRepository(private val context: Context) {
     private var serverJob: Job? = null
 
     fun startServer() {
+
         serverJob = CoroutineScope(Dispatchers.IO).launch {
             try {
                 val sslContext = setupSSLContext()

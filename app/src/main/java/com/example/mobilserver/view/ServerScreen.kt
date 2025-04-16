@@ -34,7 +34,7 @@ fun ServerScreen(viewModel: ServerViewModel) {
     LaunchedEffect(productList) {
         if (productList.isNotEmpty()) {
             animateUp = false
-            delay(1000)
+            delay(1100)
             animateUp = true
             println("baslatildi")
         }
@@ -171,17 +171,17 @@ fun BusinessHeader(receiptNumber: Int) {
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            "FURKAN LTD.",
+            "ANONİM LTD.",
             style = MaterialTheme.typography.headlineSmall.copy(fontFamily = fakeReceiptFont),  // Fontu burada uyguladık
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
         Text(
-            "Furkan Çelik",
+            "TEST FİŞİDİR",
             style = MaterialTheme.typography.bodyLarge.copy(fontFamily = fakeReceiptFont),
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
         Text(
-            "Bağcılar Adres No:7",
+            "Anonim Adres No:7",
             style = MaterialTheme.typography.bodyMedium.copy(fontFamily = fakeReceiptFont),
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
@@ -190,7 +190,7 @@ fun BusinessHeader(receiptNumber: Int) {
 
         // Teşekkür ederiz yazısını buraya ekliyoruz
         Text(
-            "BAĞCILAR VERGİ DAİRESİ",
+            "ANONİM VERGİ DAİRESİ",
             fontSize = 16.sp,
             modifier = Modifier.align(Alignment.CenterHorizontally),
             style = TextStyle(fontFamily = fakeReceiptFont)  // Fontu burada uyguladık
